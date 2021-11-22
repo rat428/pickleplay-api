@@ -1,0 +1,118 @@
+version: v1.0
+
+name: PicklePlay API Pipeline
+
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu1804
+
+blocks:
+  - name: "Install Dependencies"
+    task:
+      prologue:
+        commands:
+          - sem-version python 3.9
+          - sudo apt-get update && sudo apt-get install -y python3-dev && sudo apt-get install -y postgresql postgresql-contrib binutils libproj-dev gdal-bin
+          - echo "DONE"
+      jobs:
+        - name: pip
+          commands:
+            - checkout
+            - cache restore
+            - pip download --cache-dir .pip_cache -r requirements.txt
+            - cache store
+
+  - name: "Run Code Analysis"
+    task:
+      # This block executes code analysis tests with pylint.
+      prologue:
+        commands:
+          - sem-version python 3.9
+          - checkout
+          - cache restore
+          - pip install -r requirements.txt --cache-dir .pip_cache
+      jobs:
+        - name: Pylint
+          commands:
+            # list out files that are in directory and working tree
+            # grep -v will exclude the files being considered for pylint
+            # grep -E will matches files having .py extension
+            # This command will help to pass required python files to pylint along with pylint_djanog plugin
+            # Pylint with -E option will display only if there is any error
+#            - git ls-files | grep -v 'migrations' | grep -v 'settings.py' | grep -v 'manage.py' | grep -E '.py$' |
+#              xargs pylint -E --load-plugins=pylint_django
+             - echo "Fake Lint"
+
+  - name: "Run Unit Tests"
+    task:
+      env_vars:
+        - name: DB_NAME
+          value: postgres
+        - name: DB_PASSWORD
+          value: postgres
+        - name: DB_HOST
+          value: localhost
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: postgres
+      secrets:
+        - name: Pickle Play
+      prologue:
+        commands:
+          - sem-version python 3.9
+          - sem-service start postgres
+          - checkout
+          - cache restore
+          - pip install -r requirements.txt --cache-dir .pip_cache
+      jobs:
+        - name: Model Test
+          commands:
+            # Test the application's database models.
+#            - python manage.py test
+          - echo "Run Tests"
+#        - name: View Test
+#          commands:
+#            # Test the application's views.
+#            - python manage.py test tasks.tests.test_views
+  - name: "Push Image"
+    skip:
+      when: "branch != 'master'"
+    task:
+      env_vars:
+        - name: AWS_DEFAULT_REGION
+          value: us-west-2
+        - name: ECR_REGISTRY
+          value: 399895808374.dkr.ecr.us-west-2.amazonaws.com/pickle-play-api
+      secrets:
+        - name: Pickle Play
+      prologue:
+        commands:
+          # Install the most up-to-date AWS cli
+          - sudo pip install awscli
+          - checkout
+          # ecr get-login outputs a login command, so execute that with bash
+          - aws ecr get-login --no-include-email | bash
+
+      jobs:
+        - name: Push Image
+          commands:
+            - docker build -t example .
+            - docker tag example "${ECR_REGISTRY}:latest"
+            - docker push "${ECR_REGISTRY}:latest"
+
+# .semaphore/pipeline.yml
+
+#  - name: "Run Security Tests"
+#    task:
+#      # This block runs through the security checklist for the project.
+#      jobs:
+#        - name: Deployment Checklist
+#          commands:
+#            - checkout
+#            - sem-version python 3.7
+#            - cache restore
+#            - pip install -r requirements.txt --cache-dir .pip_cache
+#            # Test if project can be deployed securely.
+#            - python manage.py check --deploy --fail-level ERROR
